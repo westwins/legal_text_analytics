@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>법률 지능을 위한 신경-상징 아키텍처</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Warm Neutrals -->
+    <!-- Application Structure Plan: The application uses a task-oriented, hub-and-spoke design. The central hub is a visual diagram of the 2-phase Neuro-Symbolic process, which acts as the primary navigation. This is more intuitive than a linear document structure. Clicking a phase leads to a dedicated section (spoke). Phase 1 is organized with tabs for 'Dispute Explorer', 'Ontology', 'Ledger', and 'Chart Comparison', allowing users to explore different facets of the knowledge extraction process. The Dispute Explorer features interactive cards that reveal details and a custom-rendered knowledge graph for each case. Phase 2 simulates the Graph-RAG process step-by-step, making the abstract concept of explainable reasoning tangible. This interactive, modular structure was chosen to break down the dense report into digestible, engaging pieces, empowering users to actively learn and discover insights at their own pace. -->
+    <!-- Visualization & Content Choices: 
+        - Overall Process: Goal is to provide a mental model of the architecture. A custom HTML/CSS diagram serves as a visual anchor and navigation hub.
+        - Case Data Relationships (Goal: Organize/Relate): For each of the 5 disputes, the report's core is the relationship between entities. A dynamically rendered graph using absolutely positioned HTML divs for nodes and JS-calculated/CSS-styled divs for edges visualizes this complex data. This method circumvents the NO SVG/Mermaid rule while directly representing the KG structure. Hovering on nodes provides details. This transforms static text into an interactive exploration.
+        - Quantitative Comparison (Goal: Compare): A Chart.js bar chart is used to visualize the monetary values of different claims (e.g., Debt_HaeDream 2억, Loan_Seongsu_2 3억), offering a quick quantitative overview that is present but not visualized in the source text.
+        - Explainable Reasoning (Goal: Inform/Demonstrate Process): A multi-step wizard UI simulates the RAG flow. The final step shows the generated text with clickable citation tags. Clicking a tag highlights the corresponding evidence node in an accompanying KG visualization, directly demonstrating the report's core claim of "explainability" and making the concept concrete for the user.
+        - Data Reference (Goal: Inform): The master ledger from the report is presented as a clean, sortable HTML table for quick reference.
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f8f7f4;
+            color: #44403c;
+        }
+        .section-title {
+            color: #0c4a6e;
+        }
+        .card {
+            background-color: #ffffff;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            transition: all 0.3s ease-in-out;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -2px rgb(0 0 0 / 0.1);
+        }
+        .tab-button {
+            transition: all 0.3s ease;
+            border-bottom: 2px solid transparent;
+        }
+        .tab-button.active {
+            border-bottom-color: #0369a1;
+            color: #0369a1;
+            font-weight: 600;
+        }
+        .process-arrow {
+            font-size: 2rem;
+            color: #57534e;
+        }
+        .kg-graph-container {
+            position: relative;
+            width: 100%;
+            height: 500px;
+            border: 1px solid #e7e5e4;
+            background-image: radial-gradient(#d6d3d1 1px, transparent 1px);
+            background-size: 20px 20px;
+            overflow: auto;
+        }
+        .kg-node {
+            position: absolute;
+            padding: 8px 12px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border: 1px solid rgba(0,0,0,0.1);
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+            font-size: 0.875rem;
+            white-space: nowrap;
+        }
+        .kg-node:hover {
+            transform: scale(1.05);
+            z-index: 10;
+        }
+        .kg-edge {
+            position: absolute;
+            background-color: #a8a29e;
+            height: 2px;
+            transform-origin: 0 0;
+            z-index: 1;
+        }
+        .kg-edge-label {
+            position: absolute;
+            font-size: 0.75rem;
+            color: #78716c;
+            background-color: #f8f7f4e0;
+            padding: 0 4px;
+            border-radius: 4px;
+            z-index: 2;
+            transform: translate(-50%, -50%);
+        }
+        .tooltip {
+            position: absolute;
+            display: none;
+            background-color: #292524;
+            color: #f5f5f4;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            z-index: 100;
+            pointer-events: none;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            max-width: 250px;
+        }
+        .highlight {
+            border: 3px solid #ea580c;
+            box-shadow: 0 0 15px rgba(234, 88, 12, 0.5);
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-stone-100 text-stone-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-12">
+            <h1 class="text-4xl md:text-5xl font-bold section-title mb-2">법률 AI를 위한 신경-상징 아키텍처</h1>
+            <p class="text-lg text-stone-600">민사소송기록(2025-07) 기반 대화형 사례 연구</p>
+        </header>
+
+        <main>
+            <section id="intro" class="mb-16">
+                <p class="max-w-4xl mx-auto text-center text-lg leading-relaxed mb-8">
+                    본 애플리케이션은 법률 문서의 미묘한 의미를 파악하는 신경망(LLM)의 '인식' 능력과, 법률 규칙의 엄격한 논리를 따르는 상징 시스템(지식 그래프)의 '추론' 능력을 결합한 하이브리드 AI 아키텍처를 탐색합니다. LLM의 환각을 억제하고 신뢰도와 설명가능성을 극대화하는 과정을 직접 확인해보세요.
+                </p>
+                <div class="max-w-5xl mx-auto p-8 card text-center cursor-pointer" onclick="document.getElementById('process-diagram').scrollIntoView({ behavior: 'smooth' });">
+                    <h2 class="text-2xl font-bold section-title mb-4">핵심 프로세스 탐색하기</h2>
+                    <p class="text-stone-600 mb-6">아래 다이어그램의 각 단계를 클릭하여 지식이 어떻게 추출, 구조화, 활용되는지 단계별로 살펴보세요.</p>
+                    <div id="process-diagram" class="flex flex-col md:flex-row items-center justify-center gap-4 text-center">
+                        <div class="p-4 bg-sky-100 text-sky-800 rounded-lg shadow-sm">
+                            <h3 class="font-bold">비정형 데이터</h3>
+                            <p class="text-sm">소송 기록</p>
+                        </div>
+                        <div class="process-arrow text-3xl text-stone-400">→</div>
+                        <div id="nav-phase1" class="p-6 rounded-lg bg-amber-100 border-2 border-amber-200 cursor-pointer hover:bg-amber-200 hover:shadow-lg transition">
+                            <h3 class="font-bold text-amber-800">1단계 (신경망 → 상징)</h3>
+                            <p class="text-sm text-amber-700">지식 그래프 구축</p>
+                        </div>
+                        <div class="process-arrow text-3xl text-stone-400">→</div>
+                        <div id="nav-phase2" class="p-6 rounded-lg bg-emerald-100 border-2 border-emerald-200 cursor-pointer hover:bg-emerald-200 hover:shadow-lg transition">
+                            <h3 class="font-bold text-emerald-800">2단계 (상징 → 신경망)</h3>
+                            <p class="text-sm text-emerald-700">그래프 기반 추론</p>
+                        </div>
+                        <div class="process-arrow text-3xl text-stone-400">→</div>
+                         <div class="p-4 bg-sky-100 text-sky-800 rounded-lg shadow-sm">
+                            <h3 class="font-bold">설명가능한 답변</h3>
+                            <p class="text-sm">근거 기반 분석</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="phase1" class="mb-16">
+                <div class="text-center mb-8">
+                    <h2 class="text-3xl font-bold section-title">1단계: 비정형 기록으로부터 지식 그래프 구축</h2>
+                    <p class="text-stone-600 mt-2 max-w-3xl mx-auto">LLM을 사용해 소송 기록 텍스트에서 법률적 개체와 관계를 추출하여, 기계가 읽고 분석할 수 있는 구조화된 지식 그래프(KG)로 변환합니다.</p>
+                </div>
+
+                <div class="card p-6 md:p-8">
+                    <div class="mb-6 border-b border-stone-200">
+                        <nav class="flex space-x-4 sm:space-x-8 -mb-px" id="phase1-tabs">
+                            <button data-tab="disputes" class="tab-button py-4 px-1 text-base font-medium text-stone-500 hover:text-sky-700">분쟁 사례 탐색기</button>
+                            <button data-tab="ontology" class="tab-button py-4 px-1 text-base font-medium text-stone-500 hover:text-sky-700">온톨로지 스키마</button>
+                            <button data-tab="ledger" class="tab-button py-4 px-1 text-base font-medium text-stone-500 hover:text-sky-700">마스터 개체 대장</button>
+                             <button data-tab="chart" class="tab-button py-4 px-1 text-base font-medium text-stone-500 hover:text-sky-700">분쟁 가치 비교</button>
+                        </nav>
+                    </div>
+
+                    <div id="phase1-content"></div>
+                </div>
+            </section>
+            
+            <section id="phase2" class="mb-16">
+                 <div class="text-center mb-8">
+                    <h2 class="text-3xl font-bold section-title">2단계: 그래프 기반의 설명 가능한 추론 (Graph-RAG)</h2>
+                    <p class="text-stone-600 mt-2 max-w-3xl mx-auto">구축된 지식 그래프를 '진실의 원천'으로 사용하여 LLM의 추론 과정을 안내합니다. 이를 통해 사실에 근거하고 모든 결론을 역추적할 수 있는 투명한 분석 결과를 생성합니다.</p>
+                </div>
+                <div class="card p-6 md:p-8" id="rag-container"></div>
+            </section>
+
+             <section id="conclusion" class="text-center">
+                <h2 class="text-3xl font-bold section-title mb-4">결론: 신뢰할 수 있는 법률 AI</h2>
+                <div class="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto mt-8">
+                    <div class="card p-6">
+                        <h3 class="font-bold text-lg text-sky-800 mb-2">✔️ 환각 현상 억제</h3>
+                        <p class="text-sm text-stone-600">AI의 추론이 검증된 지식 그래프의 사실에만 엄격히 구속되어, 사실이 아닌 정보를 생성할 위험을 극적으로 낮춥니다.</p>
+                    </div>
+                    <div class="card p-6">
+                        <h3 class="font-bold text-lg text-sky-800 mb-2">🔍 내재된 설명가능성</h3>
+                        <p class="text-sm text-stone-600">모든 분석 결과는 지식 그래프의 특정 노드로, 나아가 원본 문서의 구절까지 역추적이 가능하여 AI 판단의 근거를 투명하게 제시합니다.</p>
+                    </div>
+                    <div class="card p-6">
+                        <h3 class="font-bold text-lg text-sky-800 mb-2">🕸️ 전체론적 분석</h3>
+                        <p class="text-sm text-stone-600">사건들 사이의 숨겨진 연결고리를 시각적으로 드러내어, 단순 텍스트 분석으로는 파악하기 어려운 사건의 전체 구조에 대한 깊은 이해를 돕습니다.</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    <div id="tooltip" class="tooltip"></div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const appData = {
+        ontology: {
+            nodes: [
+                { name: 'Person', desc: '개인 (원고, 피고 등)' },
+                { name: 'Corporation', desc: '법인' },
+                { name: 'Property', desc: '재산 (부동산 등)' },
+                { name: 'Contract', desc: '계약 (매매, 임대차 등)' },
+                { name: 'Debt', desc: '채무' },
+                { name: 'SecurityInterest', desc: '담보물권 (근저당권 등)' },
+                { name: 'LegalEvent', desc: '법률 사건 (소제기, 경매 등)' },
+                { name: 'Document', desc: '문서 (계약서, 등기부 등)' },
+                { name: 'LegalClaim', desc: '법적 주장' },
+            ],
+            edges: [
+                { name: 'HAS_PARTY', desc: '당사자 관계' },
+                { name: 'IS_SECURED_BY', desc: '담보 관계' },
+                { name: 'TRANSFERRED_TO', desc: '권리 이전 관계' },
+                { name: 'ALLEGES', desc: '주장 관계' },
+                { name: 'EVIDENCED_BY', desc: '증거 관계' },
+                { name: 'OCCURRED_ON', desc: '발생 시점 관계' },
+            ]
+        },
+        ledger: [
+            { id: "Person_KangYongwon", name: "강용원", type: "Person", date: "1947-12-11", value: "-", doc: "의뢰인 상담일지" },
+            { id: "Person_OhMinhan", name: "오민한", type: "Person", date: "1954-06-07", value: "-", doc: "영업양도 계약서" },
+            { id: "Person_LeeMunho", name: "이문호", type: "Person", date: "1964-10-03", value: "-", doc: "등기사항전부증명서" },
+            { id: "Corporation_DaehanBank", name: "주식회사 대한은행", type: "Corporation", date: "-", value: "-", doc: "등기사항전부증명서" },
+            { id: "RealEstate_SeongsuLand", name: "성수동 대지", type: "RealEstate_Land", date: "-", value: "-", doc: "별지 목록" },
+            { id: "RealEstate_SinlimStore", name: "신림동 상가", type: "RealEstate_Building", date: "-", value: "2.4억 원", doc: "별지 목록" },
+            { id: "RealEstate_PyeongtaekVilla", name: "평택시 빌라", type: "RealEstate_Condo", date: "-", value: "-", doc: "별지 목록" },
+            { id: "Debt_HaeDream", name: "해드림 물품대금 채무", type: "Debt", date: "2021-06-05", value: "2억 원", doc: "의뢰인 상담일지" },
+            { id: "Loan_Seongsu_2", name: "성수동 2차 차용금", type: "LoanAgreement", date: "2023-07-06", value: "3억 원", doc: "차용증" },
+            { id: "Lien_Pyeongtaek", name: "평택시 빌라 유치권", type: "Lien", date: "-", value: "3억 원", doc: "공사도급 계약서" },
+        ],
+        disputes: {
+            dispute1: {
+                title: "분쟁 1: '해드림' 채권과 소멸시효",
+                summary: "인테리어 자재대금 채권(2억)을 영업양수인 오민한에게 청구하는 사건입니다. 영업양수인의 책임, 단기소멸시효, 그리고 양도인의 채무승인 효력이 주요 쟁점입니다.",
+                issues: ["상법상 영업양수인의 책임", "상사채권의 소멸시효(3년)", "소멸시효 중단(채무승인)의 효과 범위"],
+                nodes: [
+                    { id: 'p1', label: '강용원(채권자)', x: 50, y: 200, type: 'Person', details: '원고, 해드림 채권의 채권자 (출처: 의뢰인 상담일지)' },
+                    { id: 'p2', label: '김선웅(양도인)', x: 350, y: 50, type: 'Person', details: '해드림 원래 채무자, 영업 양도인 (출처: 영업양도 계약서)' },
+                    { id: 'p3', label: '오민한(양수인)', x: 350, y: 350, type: 'Person', details: '해드림 영업 양수인, 피고 (출처: 영업양도 계약서)' },
+                    { id: 'd1', label: '해드림 채권(2억)', x: 200, y: 200, type: 'Debt', details: '2021-06-05 발생, 상사채권 (출처: 의뢰인 상담일지)' },
+                    { id: 'e1', label: '영업양도', x: 550, y: 200, type: 'LegalEvent', details: '2024-07-05, 상호 "해드림" 속용 (출처: 영업양도 계약서)' },
+                    { id: 'e2', label: '채무승인(각서)', x: 550, y: 50, type: 'LegalEvent', details: '2024-08-05, 양도인 김선웅이 작성 (출처: 이행각서)' },
+                ],
+                edges: [
+                    { from: 'p1', to: 'd1', label: '채권 보유' },
+                    { from: 'd1', to: 'p2', label: '원채무자' },
+                    { from: 'p2', to: 'e1', label: '양도' },
+                    { from: 'e1', to: 'p3', label: '양수' },
+                    { from: 'p2', to: 'e2', label: '작성' },
+                ]
+            },
+            dispute2: {
+                title: "분쟁 2: 성수동 대지와 무효인 경매",
+                summary: "강용원이 오민한에게 4억원을 변제했으나, 오민한이 무효가 된 근저당권에 기해 경매를 실행하여 제3자에게 소유권이 넘어간 사건입니다. 법정변제충당이 핵심 쟁점입니다.",
+                issues: ["민법상 법정변제충당", "피담보채무 소멸과 근저당권의 효력", "무효인 경매와 소유권 이전의 효력", "부동산 등기의 공신력 부인"],
+                nodes: [
+                    { id: 'p1', label: '강용원(채무자)', x: 50, y: 250, type: 'Person', details: '성수동 대지 원소유자 (출처: 등기사항전부증명서)'},
+                    { id: 'p2', label: '오민한(채권자)', x: 400, y: 100, type: 'Person', details: '2건의 대여금 채권자 (출처: 차용증 2건)'},
+                    { id: 'p3', label: '이문호(경락인)', x: 700, y: 250, type: 'Person', details: '무효 경매로 소유권 취득 (출처: 등기사항전부증명서)'},
+                    { id: 'c1', label: '2억 대여금(이자 10%)', x: 200, y: 50, type: 'Debt', details: '1순위 근저당권으로 담보 (출처: 차용증, 등기부)'},
+                    { id: 'c2', label: '3억 대여금(이자 15%)', x: 200, y: 150, type: 'Debt', details: '2순위 근저당권으로 담보 (출처: 차용증, 등기부)'},
+                    { id: 'e1', label: '4억 변제', x: 200, y: 350, type: 'LegalEvent', details: '2024-07-05, 채무 미지정 (출처: 의뢰인 상담일지)'},
+                    { id: 'e2', label: '경매 실행', x: 550, y: 175, type: 'LegalEvent', details: '무효인 2순위 근저당권에 기함 (출처: 등기사항전부증명서)'},
+                    { id: 'prop', label: '성수동 대지', x: 400, y: 400, type: 'Property', details: '분쟁의 대상 부동산 (출처: 별지목록)'},
+                ],
+                edges: [
+                    { from: 'p1', to: 'c1', label: '채무' }, { from: 'p1', to: 'c2', label: '채무' },
+                    { from: 'p2', to: 'c1', label: '채권' }, { from: 'p2', to: 'c2', label: '채권' },
+                    { from: 'p1', to: 'e1', label: '변제' }, { from: 'p2', to: 'e1', label: '수령' },
+                    { from: 'p2', to: 'e2', label: '실행' }, { from: 'p3', to: 'e2', label: '경락' },
+                    { from: 'prop', to: 'c1', label: '담보' }, { from: 'prop', to: 'c2', label: '담보' },
+                ]
+            },
+            dispute3: {
+                title: "분쟁 3: 신림동 상가와 사해행위",
+                summary: "채무자 오국한이 유일한 재산인 신림동 상가를 친족 오민한에게 이전한 행위가 채권자 강용원에 대한 사해행위에 해당하는지가 문제되는 사건입니다.",
+                issues: ["사해행위 취소권", "채무자의 무자력 및 사해의사", "수익자의 악의 추정", "계약명의신탁과 재산 귀속"],
+                nodes: [
+                    { id: 'p1', label: '강용원(채권자)', x: 50, y: 150, type: 'Person', details: '오국한에 대한 채권자 (출처: 차용증)'},
+                    { id: 'p2', label: '오국한(채무자)', x: 300, y: 150, type: 'Person', details: '채무초과 상태에서 재산 처분 (출처: 상담일지)'},
+                    { id: 'p3', label: '오민한(수익자)', x: 550, y: 150, type: 'Person', details: '오국한으로부터 상가 매수 (출처: 등기부등본)'},
+                    { id: 'prop', label: '신림동 상가', x: 425, y: 300, type: 'Property', details: '오국한의 유일한 재산 (출처: 감정평가서)'},
+                    { id: 'e1', label: '부동산 매매', x: 425, y: 150, type: 'LegalEvent', details: '2023-03-17, 사해행위로 의심됨 (출처: 등기부등본)'},
+                ],
+                edges: [
+                    { from: 'p1', to: 'p2', label: '채권관계' },
+                    { from: 'p2', to: 'e1', label: '매도' },
+                    { from: 'p3', to: 'e1', label: '매수' },
+                    { from: 'prop', to: 'e1', label: '대상' },
+                ]
+            },
+            dispute4: {
+                title: "분쟁 4: 평택 빌라 유치권과 선관주의의무",
+                summary: "유치권자 박광윤이 소유자 동의 없이 유치물을 무단으로 임대하고 거주하여 선관주의의무를 위반하자, 상속인인 강용원이 유치권 소멸을 청구한 사건입니다.",
+                issues: ["유치권자의 선관주의의무", "의무위반과 유치권 소멸청구", "부당이득반환의무"],
+                nodes: [
+                    { id: 'p1', label: '강용원(소유자)', x: 50, y: 150, type: 'Person', details: '빌라 상속인 (출처: 가족관계증명서)'},
+                    { id: 'p2', label: '박광윤(유치권자)', x: 300, y: 150, type: 'Person', details: '공사대금 3억 채권 (출처: 공사도급계약서)'},
+                    { id: 'prop', label: '평택시 빌라', x: 175, y: 300, type: 'Property', details: '유치권 목적물 (출처: 등기부등본)'},
+                    { id: 'e1', label: '무단 임대/사용', x: 500, y: 150, type: 'LegalEvent', details: '선관주의의무 위반 행위 (출처: 박광윤 답변서)'},
+                    { id: 'e2', label: '유치권 소멸청구', x: 175, y: 50, type: 'LegalEvent', details: '강용원이 박광윤에게 통지 (출처: 소멸청구 통지서)'},
+                ],
+                edges: [
+                    { from: 'p2', to: 'prop', label: '유치' },
+                    { from: 'p1', to: 'prop', label: '소유' },
+                    { from: 'p2', to: 'e1', label: '위반 행위' },
+                    { from: 'p1', to: 'e2', label: '청구' },
+                    { from: 'p2', to: 'e2', label: '피청구인' },
+                ]
+            },
+            dispute5: {
+                title: "분쟁 5: 흑석동 상가 임대차와 계약 해제의 효력",
+                summary: "상가 매수인으로부터 상가를 임차하여 대항력을 갖춘 임차인 양정숙이, 원 매매계약이 해제된 후 원 소유자에게 자신의 임차권을 주장할 수 있는지가 문제됩니다.",
+                issues: ["상가임대차보호법상 대항력", "계약해제와 제3자 보호 (민법 제548조)"],
+                nodes: [
+                    { id: 'p1', label: '윤건우(원소유자)', x: 50, y: 150, type: 'Person', details: '매도인, 계약 해제권 행사 (출처: 해제 통지서)'},
+                    { id: 'p2', label: '이수인(매수인)', x: 300, y: 150, type: 'Person', details: '매매대금 미지급으로 계약 해제됨 (출처: 해제 통지서)'},
+                    { id: 'p3', label: '양정숙(임차인)', x: 550, y: 150, type: 'Person', details: '대항력 갖춘 임차인 (출처: 임대차계약서, 사업자등록증)'},
+                    { id: 'e1', label: '매매계약', x: 175, y: 250, type: 'LegalEvent', details: '2023-10-01 체결 (출처: 부동산 매매계약서)'},
+                    { id: 'e2', label: '임대차계약', x: 425, y: 50, type: 'LegalEvent', details: '2024-02-01 대항력 취득 (출처: 사업자등록증)'},
+                    { id: 'e3', label: '매매계약 해제', x: 175, y: 50, type: 'LegalEvent', details: '2024-05-15 발생 (출처: 해제 통지서)'},
+                ],
+                edges: [
+                    { from: 'p1', to: 'e1', label: '매도' },
+                    { from: 'p2', to: 'e1', label: '매수' },
+                    { from: 'p2', to: 'e2', label: '임대' },
+                    { from: 'p3', to: 'e2', label: '임차' },
+                    { from: 'p1', to: 'e3', label: '해제' },
+                ]
+            }
+        },
+        rag: {
+            query: "강용원은 성수동 대지와 관련하여 자신이 가지는 모든 권리를 실현하기 위한 소의 제기를 희망한다.",
+            subgraph: {
+                nodes: [
+                    { id: 'p1', label: '강용원', x: 50, y: 150, type: 'Person', details: '원고, 채무자'},
+                    { id: 'p2', label: '오민한', x: 350, y: 150, type: 'Person', details: '피고, 채권자'},
+                    { id: 'p3', label: '이문호', x: 650, y: 150, type: 'Person', details: '피고, 경락인'},
+                    { id: 'p4', label: '대한은행', x: 650, y: 250, type: 'Corporation', details: '피고, 근저당권자'},
+                    { id: 'e1', label: '4억 변제', x: 200, y: 150, type: 'LegalEvent', details: '2024-07-05, 지정 없음'},
+                    { id: 'e2', label: '경매 실행', x: 500, y: 150, type: 'LegalEvent', details: '무효 근저당권 기반'},
+                    { id: 'c2', label: '3억 대여금(15%)', x: 350, y: 50, type: 'Debt', details: '이자율 높은 채무'},
+                    { id: 'r1', label: '민법 제477조', x: 200, y: 250, type: 'LegalRule', details: '법정변제충당 규칙'},
+                    { id: 'r2', label: '등기 무공신력', x: 650, y: 50, type: 'LegalRule', details: '등기의 공신력 부인 원칙'},
+                ],
+                edges: [
+                    {from: 'p1', to: 'e1', label: '지급'},
+                    {from: 'e1', to: 'p2', label: '수령'},
+                    {from: 'p2', to: 'e2', label: '실행'},
+                    {from: 'e2', to: 'p3', label: '낙찰'},
+                    {from: 'e1', to: 'r1', label: '적용 규칙'},
+                    {from: 'p2', to: 'c2', label: '관련 채무'},
+                    {from: 'p3', to: 'p4', label: '담보 설정'},
+                    {from: 'p3', to: 'r2', label: '적용 원칙'},
+                ]
+            },
+            analysis: `
+                <h4 class="font-bold text-lg mb-4 text-sky-800">제목: 강용원의 성수동 대지 관련 법적 청구 분석</h4>
+                <div class="space-y-4 text-sm">
+                    <div class="p-4 bg-stone-50 rounded-md border">
+                        <p class="font-bold">가. 이문호(<span class="rag-ref cursor-pointer underline decoration-dotted text-blue-600" data-node="p3">p3</span>)에 대한 청구: 소유권이전등기 말소청구</p>
+                        <p class="mt-1 text-stone-600"><strong>법적 근거:</strong> 이문호가 소유권을 취득한 경매(<span class="rag-ref cursor-pointer underline decoration-dotted text-blue-600" data-node="e2">e2</span>)는 무효입니다. 강용원은 4억 원을 변제(<span class="rag-ref cursor-pointer underline decoration-dotted text-blue-600" data-node="e1">e1</span>)하면서 채무를 특정하지 않아 법정변제충당(<span class="rag-ref cursor-pointer underline decoration-dotted text-blue-600" data-node="r1">r1</span>) 규정에 따라 이자율이 높은 3억 원 채무(<span class="rag-ref cursor-pointer underline decoration-dotted text-blue-600" data-node="c2">c2</span>)가 먼저 소멸했습니다. 따라서 해당 채무를 담보하던 근저당권에 기한 경매는 원인무효이며, 등기의 공신력이 없으므로(<span class="rag-ref cursor-pointer underline decoration-dotted text-blue-600" data-node="r2">r2</span>) 이문호의 등기는 무효입니다.</p>
+                    </div>
+                    <div class="p-4 bg-stone-50 rounded-md border">
+                        <p class="font-bold">나. 주식회사 대한은행(<span class="rag-ref cursor-pointer underline decoration-dotted text-blue-600" data-node="p4">p4</span>)에 대한 청구: 근저당권설정등기 말소청구</p>
+                        <p class="mt-1 text-stone-600"><strong>법적 근거:</strong> 대한은행의 근저당권은 무효인 이문호(<span class="rag-ref cursor-pointer underline decoration-dotted text-blue-600" data-node="p3">p3</span>)의 소유권을 전제로 설정되었으므로, 법률상 원인이 없는 무효의 등기입니다.</p>
+                    </div>
+                     <div class="p-4 bg-stone-50 rounded-md border">
+                        <p class="font-bold">다. 오민한(<span class="rag-ref cursor-pointer underline decoration-dotted text-blue-600" data-node="p2">p2</span>)에 대한 청구: 불법행위로 인한 손해배상청구</p>
+                        <p class="mt-1 text-stone-600"><strong>법적 근거:</strong> 오민한은 변제(<span class="rag-ref cursor-pointer underline decoration-dotted text-blue-600" data-node="e1">e1</span>)로 근저당권이 소멸했음을 알았거나 알 수 있었음에도 고의/과실로 무효인 경매를 실행(<span class="rag-ref cursor-pointer underline decoration-dotted text-blue-600" data-node="e2">e2</span>)하여 강용원(<span class="rag-ref cursor-pointer underline decoration-dotted text-blue-600" data-node="p1">p1</span>)에게 손해를 입혔으므로 불법행위를 구성합니다.</p>
+                    </div>
+                </div>
+            `
+        }
+    };
+
+    const phase1Content = document.getElementById('phase1-content');
+    const phase1Tabs = document.getElementById('phase1-tabs');
+    const ragContainer = document.getElementById('rag-container');
+    const tooltip = document.getElementById('tooltip');
+    
+    let activeDispute = 'dispute1';
+    let activeTab = 'disputes';
+    let ragStep = 0;
+    
+    function renderPhase1() {
+        phase1Tabs.querySelectorAll('.tab-button').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === activeTab);
+        });
+
+        let html = '';
+        if (activeTab === 'disputes') {
+            html = `
+                <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                    ${Object.entries(appData.disputes).map(([key, val]) => `
+                        <div id="dispute-card-${key}" data-dispute="${key}" class="card p-5 cursor-pointer dispute-card ${key === activeDispute ? 'ring-2 ring-sky-600' : ''}">
+                            <h4 class="font-bold text-lg text-sky-800 mb-2">${val.title}</h4>
+                            <p class="text-sm text-stone-600">${val.summary}</p>
+                        </div>
+                    `).join('')}
+                </div>
+                <div id="dispute-details" class="fade-in"></div>
+            `;
+        } else if (activeTab === 'ontology') {
+             html = `
+                <div class="grid md:grid-cols-2 gap-8 fade-in">
+                    <div>
+                        <h4 class="font-bold text-lg text-sky-800 mb-3">개체 유형 (노드)</h4>
+                        <div class="space-y-2">
+                            ${appData.ontology.nodes.map(n => `<div class="p-3 bg-stone-50 rounded-md border"><p class="font-semibold text-stone-700">${n.name}</p><p class="text-sm text-stone-500">${n.desc}</p></div>`).join('')}
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-lg text-sky-800 mb-3">관계 유형 (엣지)</h4>
+                        <div class="space-y-2">
+                            ${appData.ontology.edges.map(e => `<div class="p-3 bg-stone-50 rounded-md border"><p class="font-semibold text-stone-700">${e.name}</p><p class="text-sm text-stone-500">${e.desc}</p></div>`).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else if (activeTab === 'ledger') {
+            html = `
+                <div class="fade-in">
+                    <h4 class="font-bold text-lg text-sky-800 mb-4">주요 개체 및 자산 대장</h4>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left text-stone-500">
+                            <thead class="text-xs text-stone-700 uppercase bg-stone-100">
+                                <tr>
+                                    <th scope="col" class="py-3 px-6">명칭</th><th scope="col" class="py-3 px-6">유형</th><th scope="col" class="py-3 px-6">주요 일자</th><th scope="col" class="py-3 px-6">주요 금전 가치</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${appData.ledger.map(item => `
+                                    <tr class="bg-white border-b hover:bg-stone-50">
+                                        <th scope="row" class="py-4 px-6 font-medium text-stone-900 whitespace-nowrap">${item.name}</th>
+                                        <td class="py-4 px-6">${item.type}</td><td class="py-4 px-6">${item.date}</td><td class="py-4 px-6">${item.value}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        } else if (activeTab === 'chart') {
+            html = `
+                <div class="fade-in">
+                    <h4 class="font-bold text-lg text-sky-800 mb-4">분쟁별 관련 금전 가치 비교</h4>
+                    <p class="text-sm text-stone-600 mb-4">각 분쟁과 직접적으로 연관된 주요 채권 및 자산의 가치를 비교하여 사건의 재산적 규모를 파악할 수 있습니다.</p>
+                    <div class="chart-container" style="position: relative; height:40vh; max-height:400px; width:100%; max-width:800px; margin:auto;">
+                        <canvas id="disputes-chart"></canvas>
+                    </div>
+                </div>
+            `;
+        }
+        phase1Content.innerHTML = html;
+
+        if (activeTab === 'disputes') {
+            renderDisputeDetails();
+        } else if (activeTab === 'chart') {
+            renderDisputesChart();
+        }
+    }
+    
+    function renderDisputesChart() {
+        const chartCanvas = document.getElementById('disputes-chart');
+        if (!chartCanvas) return;
+        
+        const chartData = {
+            labels: ['분쟁 1: 해드림 채권', '분쟁 2: 성수동 대여금', '분쟁 3: 신림동 상가', '분쟁 4: 평택 빌라 공사대금', '분쟁 5: 흑석동 상가'],
+            datasets: [{
+                label: '금액 (억 원)',
+                data: [2, 5, 2.4, 3, 10], // 3억 대여금 + 2억 대여금 = 5억
+                backgroundColor: ['rgba(251, 146, 60, 0.6)', 'rgba(234, 179, 8, 0.6)', 'rgba(132, 204, 22, 0.6)', 'rgba(16, 185, 129, 0.6)', 'rgba(139, 92, 246, 0.6)'],
+                borderColor: ['rgb(251, 146, 60)', 'rgb(234, 179, 8)', 'rgb(132, 204, 22)', 'rgb(16, 185, 129)', 'rgb(139, 92, 246)'],
+                borderWidth: 1
+            }]
+        };
+
+        new Chart(chartCanvas.getContext('2d'), {
+            type: 'bar', data: chartData,
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false }, title: { display: true, text: '주요 분쟁 관련 금액' } },
+                scales: { y: { beginAtZero: true, ticks: { callback: value => `${value}억` } } }
+            }
+        });
+    }
+
+    function renderDisputeDetails() {
+        const detailsContainer = document.getElementById('dispute-details');
+        const disputeData = appData.disputes[activeDispute];
+        if (!detailsContainer || !disputeData) return;
+
+        detailsContainer.innerHTML = `
+            <div class="grid lg:grid-cols-2 gap-8">
+                <div class="p-4 bg-stone-50 rounded-lg border">
+                    <h4 class="font-bold text-lg text-sky-800 mb-3">주요 법적 쟁점</h4>
+                    <ul class="space-y-2 list-disc list-inside text-stone-600 text-sm">
+                        ${disputeData.issues.map(issue => `<li>${issue}</li>`).join('')}
+                    </ul>
+                    <h4 class="font-bold text-lg text-sky-800 mt-6 mb-3">지식 그래프 시각화</h4>
+                    <p class="text-sm text-stone-600 mb-4">아래 그래프는 해당 분쟁의 핵심 개체와 관계를 시각적으로 표현한 것입니다. 노드 위에 마우스를 올려 상세 정보를 확인하세요.</p>
+                </div>
+                <div class="card p-2">
+                     <div class="kg-graph-container" id="kg-graph-container-dispute"></div>
+                </div>
+            </div>`;
+        renderKgGraph(disputeData.nodes, disputeData.edges, 'kg-graph-container-dispute');
+    }
+    
+    function renderKgGraph(nodes, edges, containerId, highlightedNodeId = null) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        container.innerHTML = '';
+        const nodeElements = {};
+
+        nodes.forEach(node => {
+            const nodeEl = document.createElement('div');
+            nodeEl.id = `${containerId}-${node.id}`;
+            nodeEl.className = 'kg-node';
+            nodeEl.style.left = `${node.x}px`;
+            nodeEl.style.top = `${node.y}px`;
+            nodeEl.textContent = node.label;
+            
+            if(node.id === highlightedNodeId) nodeEl.classList.add('highlight');
+
+            const typeColors = {'Person': 'bg-blue-200 text-blue-900', 'Property': 'bg-green-200 text-green-900', 'Debt': 'bg-red-200 text-red-900', 'LegalEvent': 'bg-yellow-200 text-yellow-900', 'LegalRule': 'bg-purple-200 text-purple-900', 'Corporation': 'bg-indigo-200 text-indigo-900'};
+            nodeEl.className += ` ${typeColors[node.type] || 'bg-stone-200'}`;
+            
+            nodeEl.addEventListener('mousemove', e => {
+                tooltip.style.display = 'block';
+                tooltip.style.left = `${e.pageX + 15}px`;
+                tooltip.style.top = `${e.pageY + 15}px`;
+                tooltip.innerHTML = node.details || node.label;
+            });
+            nodeEl.addEventListener('mouseout', () => { tooltip.style.display = 'none'; });
+            container.appendChild(nodeEl);
+            nodeElements[node.id] = nodeEl;
+        });
+
+        edges.forEach(edge => {
+            const fromNode = nodeElements[edge.from];
+            const toNode = nodeElements[edge.to];
+            if (!fromNode || !toNode) return;
+            
+            const fromX = fromNode.offsetLeft + fromNode.offsetWidth / 2;
+            const fromY = fromNode.offsetTop + fromNode.offsetHeight / 2;
+            const toX = toNode.offsetLeft + toNode.offsetWidth / 2;
+            const toY = toNode.offsetTop + toNode.offsetHeight / 2;
+            
+            const angle = Math.atan2(toY - fromY, toX - fromX) * 180 / Math.PI;
+            const length = Math.hypot(toX - fromX, toY - fromY);
+            
+            const edgeEl = document.createElement('div');
+            edgeEl.className = 'kg-edge';
+            edgeEl.style.left = `${fromX}px`; edgeEl.style.top = `${fromY}px`;
+            edgeEl.style.width = `${length}px`; edgeEl.style.transform = `rotate(${angle}deg)`;
+            container.insertBefore(edgeEl, container.firstChild);
+
+            if (edge.label) {
+                const labelEl = document.createElement('div');
+                labelEl.className = 'kg-edge-label';
+                labelEl.textContent = edge.label;
+                const labelX = fromX + (toX - fromX) / 2;
+                const labelY = fromY + (toY - fromY) / 2;
+                labelEl.style.left = `${labelX}px`; labelEl.style.top = `${labelY}px`;
+                container.appendChild(labelEl);
+            }
+        });
+    }
+
+    function renderRag() {
+        const steps = [
+            { title: '1. 사용자 질의', content: `<p class="font-mono p-4 bg-stone-100 rounded-md">"${appData.rag.query}"</p>` },
+            { title: '2. 지식 그래프 검색 (구조적 + 의미론적)', content: `<p class="mb-2 text-sm text-stone-600">질의를 분석하여 지식 그래프에서 관련 하위 그래프를 검색합니다. 여기에는 사실관계와 적용 법리가 모두 포함됩니다.</p><div class="kg-graph-container" id="rag-kg-graph"></div>` },
+            { title: '3. 컨텍스트 증강 및 엄격한 프롬프트', content: `<p class="mb-2 text-sm text-stone-600">검색된 정보를 LLM에게 '컨텍스트'로 제공하고, 제공된 정보만을 사용하도록 엄격히 지시합니다.</p><div class="font-mono text-xs p-4 bg-stone-800 text-stone-200 rounded-md overflow-x-auto"><p><span class="text-purple-400">### 지시사항 ###</span><br>당신은 법률 분석 종합기입니다. ... 모든 진술에 출처를 명시하시오.<br><br><span class="text-purple-400">### 컨텍스트 ###</span><br><span class="text-green-400">{ "node_id": "e1", "type": "PaymentMade", ... }</span><br><span class="text-green-400">{ "node_id": "r1", "type": "LegalRule", "citation": "민법 제477조", ... }</span><br>...<br><br><span class="text-purple-400">### 사용자 질의 ###</span><br>"...강용원이 제기할 수 있는 모든 법적 청구를 설명하시오."</p></div>` },
+            { title: '4. 근거 기반 답변 생성', content: `<p class="mb-2 text-sm text-stone-600">LLM은 제공된 컨텍스트를 종합하여, 모든 주장의 근거가 명시된(<span class="rag-ref cursor-pointer underline decoration-dotted text-blue-600" data-node="p3">p3</span>) 설명가능한 답변을 생성합니다. 아래 답변의 <span class="underline decoration-dotted text-blue-600">파란색 점선 밑줄 태그</span>를 클릭하면 그래프의 해당 노드가 강조 표시됩니다.</p><div id="rag-analysis-output"></div>` }
+        ];
+        
+        ragContainer.innerHTML = `
+            <div class="flex items-center justify-between mb-6">
+                 <button id="rag-prev" class="px-4 py-2 bg-stone-200 hover:bg-stone-300 text-stone-700 rounded-md transition disabled:opacity-50" ${ragStep === 0 ? 'disabled' : ''}>이전</button>
+                 <h3 class="text-xl font-bold text-center text-sky-800">${steps[ragStep].title}</h3>
+                 <button id="rag-next" class="px-4 py-2 bg-sky-700 hover:bg-sky-800 text-white rounded-md transition disabled:opacity-50" ${ragStep === steps.length - 1 ? 'disabled' : ''}>다음</button>
+            </div>
+            <div id="rag-step-content" class="fade-in min-h-[420px]">${steps[ragStep].content}</div>`;
+
+        if (ragStep === 1) renderKgGraph(appData.rag.subgraph.nodes, appData.rag.subgraph.edges, 'rag-kg-graph');
+        if (ragStep === 3) {
+            const outputContainer = document.getElementById('rag-analysis-output');
+            const graphHtml = `<div class="kg-graph-container" id="rag-kg-graph-final" style="height: 250px; margin-bottom: 1rem;"></div>`;
+            outputContainer.innerHTML = graphHtml + appData.rag.analysis;
+            renderKgGraph(appData.rag.subgraph.nodes, appData.rag.subgraph.edges, 'rag-kg-graph-final');
+        }
+    }
+
+    phase1Content.addEventListener('click', e => {
+        const card = e.target.closest('.dispute-card');
+        if (card) {
+            activeDispute = card.dataset.dispute;
+            document.querySelectorAll('.dispute-card').forEach(c => c.classList.remove('ring-2', 'ring-sky-600'));
+            card.classList.add('ring-2', 'ring-sky-600');
+            renderDisputeDetails();
+        }
+    });
+
+    phase1Tabs.addEventListener('click', e => { if (e.target.matches('.tab-button')) { activeTab = e.target.dataset.tab; renderPhase1(); } });
+    document.getElementById('nav-phase1').addEventListener('click', () => { document.getElementById('phase1').scrollIntoView({behavior:'smooth'}); });
+    document.getElementById('nav-phase2').addEventListener('click', () => { document.getElementById('phase2').scrollIntoView({behavior:'smooth'}); });
+
+    ragContainer.addEventListener('click', e => {
+        if (e.target.id === 'rag-next' && ragStep < 3) { ragStep++; renderRag(); } 
+        else if (e.target.id === 'rag-prev' && ragStep > 0) { ragStep--; renderRag(); } 
+        else if (e.target.matches('.rag-ref')) {
+            const nodeId = e.target.dataset.node;
+            renderKgGraph(appData.rag.subgraph.nodes, appData.rag.subgraph.edges, 'rag-kg-graph-final', nodeId);
+        }
+    });
+
+    renderPhase1();
+    renderRag();
+});
+</script>
+</body>
+</html>
